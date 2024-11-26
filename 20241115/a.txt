@@ -1,0 +1,137 @@
+import pygame
+import random
+import sys
+import cv2
+import mediapipe as mp
+import numpy as np
+
+# Inicializar Mediapipe
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7)
+mp_drawing = mp.solutions.drawing_utils
+
+# Inicialización de Pygame
+pygame.init()
+
+# Configuración de la ventana
+WIDTH, HEIGHT = 640, 480
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Juego de esquivar obstáculos")
+clock = pygame.time.Clock()
+
+# Cargar la imagen de fondo
+background_image_path = "C:\\ruta\\fondo.jpg"  # Cambia esto con la ruta de tu fondo
+try:
+    background_image = pygame.image.load(background_image_path)
+    background_image = pygame.transform.scale(background_image, (WIDTH, HEIGHT))
+except pygame.error:
+    print(f"Error: No se puede cargar la imagen de fondo {background_image_path}")
+    sys.exit()
+
+# Cargar la imagen del obstáculo
+obstacle_image_path = "C:\\ruta\\obstaculo.jpg"  # Cambia esto con la ruta de tu imagen de obstáculo
+try:
+    obstacle_image = pygame.image.load(obstacle_image_path)
+    obstacle_image = pygame.transform.scale(obstacle_image, (80, 80))
+except pygame.error:
+    print(f"Error: No se puede cargar la imagen de los obstáculos {obstacle_image_path}")
+    sys.exit()
+
+# Cargar la imagen de la bola
+ball_image = pygame.image.load("bola.png")  # Cambia esto con la ruta de tu bola
+ball_image = pygame.transform.scale(ball_image, (60, 60))
+ball_rect = ball_image.get_rect()
+ball_x, ball_y = WIDTH // 2, HEIGHT - 50  # Posición inicial de la bola
+
+# Configuración de obstáculos
+obstacle_width, obstacle_height = 80, 80
+obstacle_speed_y = 5
+obstacle_spawn_rate = 50
+obstacles = []
+
+# Función para generar nuevos obstáculos
+def create_obstacle():
+    obstacle_x = random.randint(0, WIDTH - obstacle_width)
+    obstacles.append([obstacle_x, 0])  # Añadir obstáculo en la parte superior
+
+# Configuración de la cámara
+cap = cv2.VideoCapture(0)
+
+# Bucle principal del juego
+game_over = False
+while True:
+    # Manejar eventos de Pygame
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            cap.release()
+            cv2.destroyAllWindows()
+            sys.exit()
+
+    if not game_over:
+        # Leer fotograma de la cámara
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: No se pudo acceder a la cámara.")
+            break
+
+        # Voltear y procesar la imagen
+        frame = cv2.flip(frame, 1)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(rgb_frame)
+
+        # Detectar posición de la mano
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                # Extraer la posición de la punta del dedo índice (landmark 8)
+                index_finger_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+                ball_x = int(index_finger_tip.x * WIDTH)
+
+                # Dibujar la mano en la ventana de la cámara (opcional)
+                mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+        # Generar nuevos obstáculos
+        if random.randint(1, obstacle_spawn_rate) == 1:
+            create_obstacle()
+
+        # Mover obstáculos
+        for obstacle in obstacles[:]:
+            obstacle[1] += obstacle_speed_y  # Movimiento hacia abajo
+
+            # Verificar si la bola ha colisionado con un obstáculo
+            obstacle_rect = pygame.Rect(obstacle[0], obstacle[1], obstacle_width, obstacle_height)
+            ball_rect.topleft = (ball_x - ball_rect.width // 2, ball_y - ball_rect.height // 2)
+            if ball_rect.colliderect(obstacle_rect):
+                game_over = True
+
+            # Eliminar obstáculos fuera de pantalla
+            if obstacle[1] > HEIGHT:
+                obstacles.remove(obstacle)
+
+        # Dibujar todo en la pantalla
+        screen.blit(background_image, (0, 0))  # Dibujar el fondo
+        for obstacle in obstacles:
+            screen.blit(obstacle_image, (obstacle[0], obstacle[1]))  # Dibujar los obstáculos
+
+        # Dibujar la bola en la pantalla
+        screen.blit(ball_image, ball_rect.topleft)
+
+    # Mostrar pantalla de game over
+    if game_over:
+        font = pygame.font.Font(None, 50)
+        screen.fill((50, 50, 50))  # Fondo oscuro
+        text_surface = font.render("¡Perdiste! Presiona 'Q' para salir", True, (255, 255, 255))
+        screen.blit(text_surface, (WIDTH // 2 - text_surface.get_width() // 2, HEIGHT // 2))
+
+    # Mostrar el marco de la cámara (opcional)
+    cv2.imshow("Detección de Mano", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+    # Actualizar la pantalla
+    pygame.display.flip()
+    clock.tick(30)
+
+# Liberar recursos
+cap.release()
+cv2.destroyAllWindows()
